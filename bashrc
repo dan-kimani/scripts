@@ -131,7 +131,7 @@ alias dev='yarn dev'
 alias build='yarn build'
 alias branch='git branch'
 
-export GH_TOKEN='e88e7eda086c65a98d6eeab80ae8dcc282c463ce'
+export GH_TOKEN=''
 
 parse_git_branch() {
  git branch 2> /dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/(\1)/'
