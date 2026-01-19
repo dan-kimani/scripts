@@ -1,41 +1,12 @@
 #!/bin/sh
 
-ls Postman*.tar.gz > /dev/null 2>&1
-if [ $? -eq 0 ]; then
-	echo "Removing old Postman tarballs"
-	rm -f $(ls Postman*.tar.gz)
-fi
-
 curlExists=$(command -v curl)
 
-echo "Testing Postman version"
-
-targetName=""
-if [ -z $curlExists ]; then
-	targetName=$(wget -S --spider "https://dl.pstmn.io/download/latest/linux64" 2>&1 | grep "Content-Disposition" | awk -F '=' '{ print $2 }')
-else
-	targetName=$(curl -sI "https://dl.pstmn.io/download/latest/linux64" | grep "content-disposition" | awk -F '=' '{ print $2 }')
-fi
-
-versionMaj=$(echo "$targetName" | awk -F '-' '{ print $4 }' | awk -F '.' '{ print $1 }')
-versionMin=$(echo "$targetName" | awk -F '-' '{ print $4 }' | awk -F '.' '{ print $2 }')
-versionRev=$(echo "$targetName" | awk -F '-' '{ print $4 }' | awk -F '.' '{ print $3 }')
-version="$versionMaj.$versionMin-$versionRev"
-echo "Most recent Postman version V$version"
-
 current=$(dpkg-query --showformat='${Version}' --show postman 2> /dev/null)
-if [ $? -gt 0 ]; then
-	echo "Postman is not installed"
-else
-	echo "Installed version V$current"
 
-	if [ "$current" = "$version" ]; then
-		echo "The most recent version of Postman is currently installed"
-		exit
-	else
-		echo "Updating Postman to the latest version"
-	fi
-fi
+originalPWD="$(pwd)"
+targetPWD="$(mktemp -d postman.XXXXXX)"
+cd "$targetPWD"
 
 echo "Downloading latest Postman tarball"
 
@@ -47,25 +18,49 @@ fi
 
 if [ $? -gt 0 ]; then
 	echo "Failed to download Postman tarball"
+	cd "$originalPWD"
+	rm -rf "$targetPWD"
 	exit
-fi
-
-if [ -d "Postman" ]; then
-	echo "Removing old 'Postman/'"
-	rm -rf "Postman/"
 fi
 
 echo "Extracting Postman tarball"
-tar -xf $(ls Postman*.tar.gz)
+tar -xf $(ls [Pp]ostman*.tar.gz)
 
 if [ $? -gt 0 ]; then
 	echo "Failed to extract Postman tarball"
+	cd "$originalPWD"
+	rm -rf "$targetPWD"
 	exit
 fi
 
-if [ -d "postman_$version" ]; then
-	echo "Removing old 'postman_$version/'"
-	rm -rf "postman_$version/"
+echo "Detecting Postman version"
+version=""
+if [ -f "Postman/app/resources/app/package.json" ]; then
+	version=$(grep -oP '"version"\s*:\s*"\K[^"]+' "Postman/app/resources/app/package.json" 2>/dev/null)
+fi
+
+if [ -z "$version" ]; then
+	echo "Failed to detect Postman version"
+	cd "$originalPWD"
+	rm -rf "$targetPWD"
+	exit
+fi
+
+echo "Most recent Postman version V$version"
+
+if [ ! -z "$current" ]; then
+	echo "Installed version V$current"
+	
+	if [ "$current" = "$version" ]; then
+		echo "The most recent version of Postman is currently installed"
+		cd "$originalPWD"
+		rm -rf "$targetPWD"
+		exit
+	else
+		echo "Updating Postman to the latest version"
+	fi
+else
+	echo "Postman is not installed"
 fi
 
 echo "Creating 'postman_$version' folder structure and files"
@@ -118,11 +113,6 @@ else
 	echo "File modes are valid"
 fi
 
-if [ -f "postman_$version.deb" ]; then
-	echo "Removing old 'postman_$version.deb'"
-	rm -f "postman_$version.deb"
-fi
-
 echo "Building 'postman_$version.deb'"
 dpkg-deb $nc -b "postman_$version" > /dev/null
 
@@ -131,18 +121,19 @@ if [ $? -gt 0 ]; then
 	exit
 fi
 
+mv "postman_$version.deb" "$originalPWD"
+cd "$originalPWD"
+
 echo "Cleaning up"
-rm -f $(ls Postman*.tar.gz)
-rm -rf "Postman/"
-rm -rf "postman_$version/"
+rm -rf "$targetPWD"
 
 while true; do
 	read -p "Do you want to install 'postman_$version.deb' [Y/n] " yn
-	
-	if [ -z $yn ]; then
+
+	if [ -z "$yn" ]; then
 		yn="y"
 	fi
-	
+
 	case $yn in
 		[Yy]* ) break;;
 		[Nn]* ) exit;;
@@ -150,7 +141,7 @@ while true; do
 done
 
 echo "Installing"
-sudo apt install "./postman_$version.deb"
+sudo apt install -y "./postman_$version.deb"
 
 if [ $? -gt 0 ]; then
 	echo "Failed to install 'postman_$version.deb'"
